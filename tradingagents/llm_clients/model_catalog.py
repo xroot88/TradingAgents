@@ -114,6 +114,10 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Qwen3:latest (8B, local)", "qwen3:latest"),
         ],
     },
+    "custom": {
+        "quick": [("Custom Model ID (Quick)", "custom")],
+        "deep": [("Custom Model ID (Deep)", "custom")],
+    },
 }
 
 

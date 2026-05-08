@@ -126,11 +126,21 @@ class TraderProposal(BaseModel):
     )
     entry_price: Optional[float] = Field(
         default=None,
-        description="Optional entry price target in the instrument's quote currency.",
+        gt=0,
+        description=(
+            "Optional absolute entry price in the instrument's quote currency. "
+            "Must be a positive number representing the actual target price level "
+            "(e.g. 189.5), not a relative offset, percentage move, or P&L delta."
+        ),
     )
     stop_loss: Optional[float] = Field(
         default=None,
-        description="Optional stop-loss price in the instrument's quote currency.",
+        gt=0,
+        description=(
+            "Optional absolute stop-loss price in the instrument's quote currency. "
+            "Must be a positive number representing the actual stop level "
+            "(e.g. 178.0), not a relative offset, percentage move, or P&L delta."
+        ),
     )
     position_sizing: Optional[str] = Field(
         default=None,
@@ -198,7 +208,12 @@ class PortfolioDecision(BaseModel):
     )
     price_target: Optional[float] = Field(
         default=None,
-        description="Optional target price in the instrument's quote currency.",
+        gt=0,
+        description=(
+            "Optional absolute target price in the instrument's quote currency. "
+            "Must be a positive number representing the actual target price level "
+            "(e.g. 195.0), not a relative offset, percentage move, or P&L delta."
+        ),
     )
     time_horizon: Optional[str] = Field(
         default=None,
