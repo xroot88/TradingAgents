@@ -6,13 +6,15 @@ render a live progress panel.
 """
 
 import asyncio
+import json
 import os
+import re
 import sys
 import traceback
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -80,6 +82,7 @@ app.add_middleware(
 )
 
 jobs: Dict[str, Dict[str, Any]] = {}
+company_name_cache: Dict[str, str] = {}
 
 
 class AnalysisRequest(BaseModel):
@@ -200,11 +203,15 @@ def _run_blocking(job_id: str, ticker: str, effort: str) -> None:
         invest_debate = accumulated.get("investment_debate_state") or {}
         risk_debate = accumulated.get("risk_debate_state") or {}
 
+        chart = None
         try:
             from cli.main import save_report_to_disk
             report_dir = ROOT / "reports" / f"{ticker}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             save_report_to_disk(accumulated, ticker, report_dir)
             job["report_path"] = str(report_dir)
+            chart_file = report_dir / "chart.json"
+            if chart_file.is_file():
+                chart = json.loads(chart_file.read_text(encoding="utf-8"))
         except Exception:
             traceback.print_exc()
 
@@ -213,6 +220,7 @@ def _run_blocking(job_id: str, ticker: str, effort: str) -> None:
             "final_decision": accumulated.get("final_trade_decision", ""),
             "investment_plan": accumulated.get("investment_plan", ""),
             "trader_plan": accumulated.get("trader_investment_plan", ""),
+            "chart": chart,
             "details": {
                 "market": accumulated.get("market_report", ""),
                 "sentiment": accumulated.get("sentiment_report", ""),
@@ -299,6 +307,149 @@ async def get_status(job_id: str):
 @app.get("/health")
 async def health():
     return {"ok": True, "agents": AGENTS}
+
+
+# Directory naming convention: {TICKER}_{YYYYMMDD}_{HHMMSS}
+_REPORT_DIR_RE = re.compile(r"^(?P<ticker>[A-Z0-9.\-]+)_(?P<date>\d{8})_(?P<time>\d{6})$")
+
+
+def _parse_report_dir(name: str) -> Optional[Dict[str, str]]:
+    m = _REPORT_DIR_RE.match(name)
+    if not m:
+        return None
+    date, time = m.group("date"), m.group("time")
+    iso = (
+        f"{date[0:4]}-{date[4:6]}-{date[6:8]}T"
+        f"{time[0:2]}:{time[2:4]}:{time[4:6]}Z"
+    )
+    return {"name": name, "ticker": m.group("ticker"), "started_at": iso}
+
+
+@app.get("/reports")
+async def list_reports() -> Dict[str, List[Dict[str, str]]]:
+    """List saved runs on disk, newest first, for the UI's recent-runs panel."""
+    base = ROOT / "reports"
+    if not base.is_dir():
+        return {"reports": []}
+    entries: List[Dict[str, str]] = []
+    for child in base.iterdir():
+        if not child.is_dir():
+            continue
+        parsed = _parse_report_dir(child.name)
+        if parsed is None:
+            continue
+        entries.append(parsed)
+    entries.sort(key=lambda e: e["started_at"], reverse=True)
+    return {"reports": entries}
+
+
+@app.post("/demo/{report_name}")
+async def demo(report_name: str):
+    """Build a synthetic completed job from a saved report on disk.
+
+    Used for visual QA of the UI without re-running the full agent graph.
+    """
+    safe = report_name.strip()
+    if not safe or "/" in safe or "\\" in safe or safe.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid report name")
+    report_dir = ROOT / "reports" / safe
+    if not report_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    def _read(rel: str) -> str:
+        p = report_dir / rel
+        return p.read_text() if p.is_file() else ""
+
+    parsed = _parse_report_dir(safe)
+    ticker = parsed["ticker"] if parsed else safe.split("_")[0]
+
+    chart_file = report_dir / "chart.json"
+    chart = None
+    if chart_file.is_file():
+        try:
+            chart = json.loads(chart_file.read_text(encoding="utf-8"))
+        except Exception:
+            chart = None
+    else:
+        # Backfill: pre-chart-snapshot reports get a live snapshot generated
+        # on first /demo open so the UI can render the chart without a re-run.
+        try:
+            from tradingagents.dataflows.chart_snapshot import build_chart_snapshot
+            chart = await asyncio.to_thread(build_chart_snapshot, ticker)
+            if chart:
+                chart_file.write_text(
+                    json.dumps(chart, separators=(",", ":")), encoding="utf-8"
+                )
+        except Exception:
+            chart = None
+
+    started_at = parsed["started_at"] if parsed else datetime.utcnow().isoformat() + "Z"
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {
+        "status": "completed",
+        "progress": _initial_progress(),
+        "result": {
+            "final_decision": _read("5_portfolio/decision.md"),
+            "investment_plan": _read("2_research/manager.md"),
+            "trader_plan": _read("3_trading/trader.md"),
+            "chart": chart,
+            "details": {
+                "market": _read("1_analysts/market.md"),
+                "sentiment": _read("1_analysts/sentiment.md"),
+                "news": _read("1_analysts/news.md"),
+                "fundamentals": _read("1_analysts/fundamentals.md"),
+            },
+            "research_debate": {
+                "history": _read("2_research/bull.md")
+                + "\n\n"
+                + _read("2_research/bear.md"),
+                "bull_history": _read("2_research/bull.md"),
+                "bear_history": _read("2_research/bear.md"),
+                "judge_decision": _read("2_research/manager.md"),
+            },
+            "risk_debate": {
+                "history": "\n\n".join(
+                    [
+                        _read("4_risk/aggressive.md"),
+                        _read("4_risk/conservative.md"),
+                        _read("4_risk/neutral.md"),
+                    ]
+                ),
+                "aggressive_history": _read("4_risk/aggressive.md"),
+                "conservative_history": _read("4_risk/conservative.md"),
+                "neutral_history": _read("4_risk/neutral.md"),
+                "judge_decision": _read("5_portfolio/decision.md"),
+            },
+        },
+        "error": None,
+        "ticker": ticker,
+        "effort": "demo",
+        "started_at": started_at,
+        "cancelled": False,
+    }
+    return {"job_id": job_id}
+
+
+@app.get("/company/{ticker}")
+async def company(ticker: str):
+    symbol = ticker.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Ticker is required")
+    if symbol in company_name_cache:
+        return {"ticker": symbol, "name": company_name_cache[symbol]}
+
+    import yfinance as yf
+
+    def _lookup() -> str:
+        info = yf.Ticker(symbol).info or {}
+        return (info.get("longName") or info.get("shortName") or "").strip()
+
+    try:
+        name = await asyncio.to_thread(_lookup)
+    except Exception:
+        name = ""
+    company_name_cache[symbol] = name
+    return {"ticker": symbol, "name": name}
 
 
 # Serve the React build at the site root. Mounted last so the API routes

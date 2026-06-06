@@ -2,11 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import AnalysisForm from './components/AnalysisForm';
 import AgentProgress from './components/AgentProgress';
 import AnalysisResult from './components/AnalysisResult';
+import RecentRuns from './components/RecentRuns';
 
 const API = '';
 
 function App() {
-  const [jobId, setJobId] = useState(null);
+  const [jobId, setJobId] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('job') || null;
+  });
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
 
@@ -101,7 +106,12 @@ function App() {
       <main className="app-main">
         {error && <div className="error-banner" style={{ marginBottom: 16 }}>{error}</div>}
 
-        {phase === 'form' && <AnalysisForm onSubmit={start} />}
+        {phase === 'form' && (
+          <>
+            <AnalysisForm onSubmit={start} />
+            <RecentRuns onOpen={(id) => setJobId(id)} />
+          </>
+        )}
 
         {phase === 'running' && <AgentProgress job={job} onStop={cancel} />}
 

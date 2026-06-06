@@ -636,9 +636,37 @@ def get_analysis_date():
             )
 
 
+def _save_chart_snapshot(ticker: str, save_path: Path) -> None:
+    """Persist a 5-minute chart snapshot alongside the report.
+
+    Best-effort: rate limits, unknown tickers, or import errors must not break
+    saving the rest of the report, so any failure is swallowed with a console
+    note. The frontend handles a missing chart.json gracefully.
+    """
+    import json
+
+    try:
+        from tradingagents.dataflows.chart_snapshot import build_chart_snapshot
+    except Exception as exc:
+        console.print(f"[yellow]chart snapshot import failed: {exc}[/yellow]")
+        return
+    try:
+        snap = build_chart_snapshot(ticker)
+    except Exception as exc:
+        console.print(f"[yellow]chart snapshot failed for {ticker}: {exc}[/yellow]")
+        return
+    if not snap:
+        return
+    save_path.mkdir(parents=True, exist_ok=True)
+    (save_path / "chart.json").write_text(
+        json.dumps(snap, separators=(",", ":")), encoding="utf-8"
+    )
+
+
 def save_report_to_disk(final_state, ticker: str, save_path: Path):
     """Save complete analysis report to disk with organized subfolders."""
     save_path.mkdir(parents=True, exist_ok=True)
+    _save_chart_snapshot(ticker, save_path)
     sections = []
 
     # 1. Analysts
@@ -724,6 +752,136 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
     header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
     return save_path / "complete_report.md"
+
+
+def _parse_pm_decision_fields(text: str) -> dict:
+    """Pull labeled fields out of the rendered Portfolio Manager markdown.
+
+    Tolerant of the freetext fallback path: missing fields return absent keys
+    rather than raising.
+    """
+    import re
+
+    if not text:
+        return {}
+
+    fields: dict = {}
+    patterns = {
+        "executive_summary": r"\*\*Executive Summary\*\*:\s*(.+?)(?=\n\s*\n\*\*|\Z)",
+        "investment_thesis": r"\*\*Investment Thesis\*\*:\s*(.+?)(?=\n\s*\n\*\*|\Z)",
+        "time_horizon": r"\*\*Time Horizon\*\*:\s*(.+?)(?=\n\s*\n|\Z)",
+        "price_target": r"\*\*Price Target\*\*:\s*(.+?)(?=\n\s*\n|\Z)",
+        "stop_loss": r"\*\*Stop Loss\*\*:\s*(.+?)(?=\n\s*\n|\Z)",
+        # Bullet list right after the **Trailing Stops** label. Stops at the
+        # next blank-line + bold-header or end-of-text. Uses [^\n] (not .+)
+        # because the surrounding re.DOTALL would otherwise let .+ swallow
+        # later sections.
+        "trailing_stops": (
+            r"\*\*Trailing Stops\*\*:\s*\n"
+            r"((?:[ \t]*-[ \t]*[^\n]+\n?)+)"
+        ),
+    }
+    for key, pattern in patterns.items():
+        m = re.search(pattern, text, re.DOTALL)
+        if m:
+            value = m.group(1).strip()
+            if value:
+                fields[key] = value
+    return fields
+
+
+def _resolve_company_name(ticker: str) -> str | None:
+    """Best-effort company name lookup via yfinance; returns None on failure.
+
+    yfinance writes HTTP errors to stderr for invalid tickers; suppress that
+    so the summary card stays clean.
+    """
+    import contextlib
+    import io
+    import logging
+
+    yf_logger = logging.getLogger("yfinance")
+    prev_level = yf_logger.level
+    yf_logger.setLevel(logging.CRITICAL)
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            import yfinance as yf
+            info = yf.Ticker(ticker).info or {}
+        return info.get("longName") or info.get("shortName")
+    except Exception:
+        return None
+    finally:
+        yf_logger.setLevel(prev_level)
+
+
+def display_summary_card(ticker: str, analysis_date: str, decision: str, final_state: dict):
+    """Render a concise, color-coded decision card at the top of the post-run output."""
+    raw_decision = final_state.get("final_trade_decision", "") or ""
+    fields = _parse_pm_decision_fields(raw_decision)
+
+    rating = (decision or "").strip() or "Unknown"
+
+    decision_color = {
+        "Buy": "bright_green",
+        "Overweight": "green",
+        "Hold": "yellow",
+        "Underweight": "orange3",
+        "Sell": "red",
+    }.get(rating, "white")
+    border_color = {
+        "Buy": "green",
+        "Overweight": "green",
+        "Hold": "yellow",
+        "Underweight": "red",
+        "Sell": "red",
+    }.get(rating, "cyan")
+
+    company_name = _resolve_company_name(ticker)
+    stock_label = f"{company_name} ({ticker})" if company_name else ticker
+
+    rationale = (
+        fields.get("executive_summary")
+        or fields.get("investment_thesis")
+        or raw_decision.strip()
+        or "No rationale provided."
+    )
+    if len(rationale) > 600:
+        rationale = rationale[:597].rstrip() + "..."
+
+    horizon = fields.get("time_horizon") or "Not specified"
+    price_target = fields.get("price_target")
+    stop_loss = fields.get("stop_loss")
+    trailing_stops = fields.get("trailing_stops")
+
+    table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
+    table.add_column("Field", style="bold cyan", width=14, justify="right", no_wrap=True)
+    table.add_column("Value", style="white", ratio=1, overflow="fold")
+
+    table.add_row("Stock", f"[bold]{stock_label}[/bold]")
+    table.add_row("As Of", analysis_date)
+    table.add_row(
+        "Decision",
+        f"[bold {decision_color}]{rating.upper()}[/bold {decision_color}]",
+    )
+    table.add_row("Time Horizon", horizon)
+    if price_target:
+        table.add_row("Price Target", price_target)
+    if stop_loss:
+        table.add_row("Stop Loss", stop_loss)
+    if trailing_stops:
+        table.add_row("Trailing Stops", trailing_stops)
+    table.add_row("Rationale", rationale)
+
+    panel = Panel(
+        table,
+        title=f"[bold]Trade Decision Summary — {ticker}[/bold]",
+        title_align="left",
+        border_style=border_color,
+        padding=(1, 2),
+    )
+    console.print()
+    console.print(panel)
+    console.print()
 
 
 def display_complete_report(final_state):
@@ -1172,7 +1330,13 @@ def run_analysis(checkpoint: bool = False):
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
     # Post-analysis prompts (outside Live context for clean interaction)
-    console.print("\n[bold cyan]Analysis Complete![/bold cyan]\n")
+    display_summary_card(
+        selections["ticker"],
+        selections["analysis_date"],
+        decision,
+        final_state,
+    )
+    console.print("[bold cyan]Analysis Complete![/bold cyan]\n")
 
     # Prompt to save report
     save_choice = typer.prompt("Save report?", default="Y").strip().upper()

@@ -19,7 +19,7 @@ so that:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -178,6 +178,37 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
 # ---------------------------------------------------------------------------
 
 
+class TrailingStop(BaseModel):
+    """A single conditional stop-loss adjustment.
+
+    Encodes a rule of the form "when the price reaches ``trigger_price``,
+    move the stop to ``new_stop_price``". The trader uses these to lock
+    in gains as a position works in their favor.
+    """
+
+    trigger_price: float = Field(
+        gt=0,
+        description=(
+            "Price level that triggers the stop adjustment, in the instrument's "
+            "quote currency. Must be a positive number, not a percentage."
+        ),
+    )
+    new_stop_price: float = Field(
+        gt=0,
+        description=(
+            "Where the stop-loss moves to once the trigger is hit, in the "
+            "instrument's quote currency. Must be a positive number."
+        ),
+    )
+    note: Optional[str] = Field(
+        default=None,
+        description=(
+            "Brief rationale, e.g. 'lock in cost basis' or 'protect first leg'. "
+            "Keep to a short fragment, not a full sentence."
+        ),
+    )
+
+
 class PortfolioDecision(BaseModel):
     """Structured output produced by the Portfolio Manager.
 
@@ -215,6 +246,25 @@ class PortfolioDecision(BaseModel):
             "(e.g. 195.0), not a relative offset, percentage move, or P&L delta."
         ),
     )
+    stop_loss: Optional[float] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Optional initial hard stop-loss price in the instrument's quote "
+            "currency. Must be a positive number representing the actual stop "
+            "level (e.g. 178.0), not a relative offset or percentage move. For "
+            "a long position this is below the entry; for a short, above."
+        ),
+    )
+    trailing_stops: List[TrailingStop] = Field(
+        default_factory=list,
+        description=(
+            "Optional schedule of conditional stop-loss adjustments. Each entry "
+            "says 'when price reaches X, move stop to Y'. Order from nearest "
+            "trigger to furthest. Keep to at most three entries. Omit entirely "
+            "if no trailing-stop plan is warranted."
+        ),
+    )
     time_horizon: Optional[str] = Field(
         default=None,
         description="Optional recommended holding period, e.g. '3-6 months'.",
@@ -238,6 +288,16 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     ]
     if decision.price_target is not None:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
+    if decision.stop_loss is not None:
+        parts.extend(["", f"**Stop Loss**: {decision.stop_loss}"])
+    if decision.trailing_stops:
+        lines = ["", "**Trailing Stops**:"]
+        for ts in decision.trailing_stops:
+            note = f" ({ts.note})" if ts.note else ""
+            lines.append(
+                f"- At {ts.trigger_price} → move stop to {ts.new_stop_price}{note}"
+            )
+        parts.extend(lines)
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
     return "\n".join(parts)
