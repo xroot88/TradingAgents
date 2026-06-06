@@ -235,7 +235,12 @@ class OpenAIClient(BaseLLMClient):
 
         # Native OpenAI: use Responses API for consistent behavior across
         # all model families. Third-party providers use Chat Completions.
-        if self.provider == "openai":
+        # The Responses API is OpenAI-specific, so only enable it when we
+        # are actually talking to OpenAI — a custom base_url (explicit or via
+        # OPENAI_BASE_URL) means a local/proxied OpenAI-compatible server
+        # (vLLM, LiteLLM) that speaks Chat Completions, not /v1/responses.
+        custom_base = llm_kwargs.get("base_url") or os.environ.get("OPENAI_BASE_URL")
+        if self.provider == "openai" and not custom_base:
             llm_kwargs["use_responses_api"] = True
 
         # Provider-specific quirks live in their own subclasses so the
