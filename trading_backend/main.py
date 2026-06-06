@@ -34,7 +34,7 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph  # noqa: E402
 # Used by the UI to render the progress panel and to compute "X / N" done.
 AGENTS = [
     "Market Analyst",
-    "Social Analyst",
+    "Sentiment Analyst",
     "News Analyst",
     "Fundamentals Analyst",
     "Bull Researcher",

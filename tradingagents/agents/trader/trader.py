@@ -9,7 +9,10 @@ from datetime import datetime, timedelta
 from langchain_core.messages import AIMessage
 
 from tradingagents.agents.schemas import TraderProposal, render_trader_proposal
-from tradingagents.agents.utils.agent_utils import build_instrument_context
+from tradingagents.agents.utils.agent_utils import (
+    get_instrument_context_from_state,
+    get_language_instruction,
+)
 from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
@@ -52,7 +55,7 @@ def create_trader(llm):
     def trader_node(state, name):
         company_name = state["company_of_interest"]
         trade_date = state.get("trade_date")
-        instrument_context = build_instrument_context(company_name)
+        instrument_context = get_instrument_context_from_state(state)
         investment_plan = state["investment_plan"]
         recent_prices = _recent_price_context(company_name, trade_date) if trade_date else ""
 
@@ -71,6 +74,7 @@ def create_trader(llm):
                     "You are a trading agent analyzing market data to make investment decisions. "
                     "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
                     "Anchor your reasoning in the analysts' reports and the research plan."
+                    + get_language_instruction()
                 ),
             },
             {

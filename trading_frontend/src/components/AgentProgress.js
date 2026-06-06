@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 const PHASES = [
   {
     title: 'Analyst Team',
-    agents: ['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst'],
+    agents: ['Market Analyst', 'Sentiment Analyst', 'News Analyst', 'Fundamentals Analyst'],
   },
   {
     title: 'Research Team',

@@ -3,7 +3,11 @@ from typing import Optional
 from .base_client import BaseLLMClient
 
 _OPENAI_COMPATIBLE = (
-    "openai", "xai", "deepseek", "qwen", "glm", "ollama", "openrouter", "custom",
+    "openai", "xai", "deepseek",
+    "qwen", "qwen-cn",
+    "glm", "glm-cn",
+    "minimax", "minimax-cn",
+    "ollama", "openrouter",
 )
 
 def create_llm_client(provider: str, model: str, base_url: Optional[str] = None, **kwargs) -> BaseLLMClient:
