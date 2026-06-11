@@ -1,3 +1,4 @@
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
@@ -50,6 +51,19 @@ def create_news_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
         result = chain.invoke(state["messages"])
+
+        # Guard against a report written purely from model memory: if the
+        # model skipped its tools and no tool results exist in the history,
+        # retry once with an explicit instruction to fetch real data.
+        if len(result.tool_calls) == 0 and not any(
+            isinstance(m, ToolMessage) for m in state["messages"]
+        ):
+            nudge = HumanMessage(
+                content="You have not called any tools yet. You must ground your"
+                " report in real data: call get_news and/or get_global_news"
+                " before writing the report. Do not write it from memory."
+            )
+            result = chain.invoke(list(state["messages"]) + [nudge])
 
         report = ""
 
