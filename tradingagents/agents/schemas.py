@@ -19,9 +19,21 @@ so that:
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# LLMs sometimes write a placeholder string ("None", "N/A", ...) into an optional
+# numeric field instead of omitting it. Coerce those to None so the structured
+# call validates instead of erroring (#1058). Pydantic still parses real numeric
+# strings ("189.5") to float.
+_NULLISH_FLOAT = {"", "none", "n/a", "na", "null", "nil", "-", "tbd", "unknown"}
+
+
+def _coerce_optional_float(value):
+    if isinstance(value, str) and value.strip().lower() in _NULLISH_FLOAT:
+        return None
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -124,28 +136,23 @@ class TraderProposal(BaseModel):
             "the research plan. Two to four sentences."
         ),
     )
-    entry_price: Optional[float] = Field(
+    entry_price: float | None = Field(
         default=None,
-        gt=0,
-        description=(
-            "Optional absolute entry price in the instrument's quote currency. "
-            "Must be a positive number representing the actual target price level "
-            "(e.g. 189.5), not a relative offset, percentage move, or P&L delta."
-        ),
+        description="Optional entry price target in the instrument's quote currency.",
     )
-    stop_loss: Optional[float] = Field(
+    stop_loss: float | None = Field(
         default=None,
-        gt=0,
-        description=(
-            "Optional absolute stop-loss price in the instrument's quote currency. "
-            "Must be a positive number representing the actual stop level "
-            "(e.g. 178.0), not a relative offset, percentage move, or P&L delta."
-        ),
+        description="Optional stop-loss price in the instrument's quote currency.",
     )
-    position_sizing: Optional[str] = Field(
+    position_sizing: str | None = Field(
         default=None,
         description="Optional sizing guidance, e.g. '5% of portfolio'.",
     )
+
+    @field_validator("entry_price", "stop_loss", mode="before")
+    @classmethod
+    def _nullish_float_to_none(cls, v):
+        return _coerce_optional_float(v)
 
 
 def render_trader_proposal(proposal: TraderProposal) -> str:
@@ -178,37 +185,6 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
 # ---------------------------------------------------------------------------
 
 
-class TrailingStop(BaseModel):
-    """A single conditional stop-loss adjustment.
-
-    Encodes a rule of the form "when the price reaches ``trigger_price``,
-    move the stop to ``new_stop_price``". The trader uses these to lock
-    in gains as a position works in their favor.
-    """
-
-    trigger_price: float = Field(
-        gt=0,
-        description=(
-            "Price level that triggers the stop adjustment, in the instrument's "
-            "quote currency. Must be a positive number, not a percentage."
-        ),
-    )
-    new_stop_price: float = Field(
-        gt=0,
-        description=(
-            "Where the stop-loss moves to once the trigger is hit, in the "
-            "instrument's quote currency. Must be a positive number."
-        ),
-    )
-    note: Optional[str] = Field(
-        default=None,
-        description=(
-            "Brief rationale, e.g. 'lock in cost basis' or 'protect first leg'. "
-            "Keep to a short fragment, not a full sentence."
-        ),
-    )
-
-
 class PortfolioDecision(BaseModel):
     """Structured output produced by the Portfolio Manager.
 
@@ -237,38 +213,19 @@ class PortfolioDecision(BaseModel):
             "incorporate them; otherwise rely solely on the current analysis."
         ),
     )
-    price_target: Optional[float] = Field(
+    price_target: float | None = Field(
         default=None,
-        gt=0,
-        description=(
-            "Optional absolute target price in the instrument's quote currency. "
-            "Must be a positive number representing the actual target price level "
-            "(e.g. 195.0), not a relative offset, percentage move, or P&L delta."
-        ),
+        description="Optional target price in the instrument's quote currency.",
     )
-    stop_loss: Optional[float] = Field(
-        default=None,
-        gt=0,
-        description=(
-            "Optional initial hard stop-loss price in the instrument's quote "
-            "currency. Must be a positive number representing the actual stop "
-            "level (e.g. 178.0), not a relative offset or percentage move. For "
-            "a long position this is below the entry; for a short, above."
-        ),
-    )
-    trailing_stops: List[TrailingStop] = Field(
-        default_factory=list,
-        description=(
-            "Optional schedule of conditional stop-loss adjustments. Each entry "
-            "says 'when price reaches X, move stop to Y'. Order from nearest "
-            "trigger to furthest. Keep to at most three entries. Omit entirely "
-            "if no trailing-stop plan is warranted."
-        ),
-    )
-    time_horizon: Optional[str] = Field(
+    time_horizon: str | None = Field(
         default=None,
         description="Optional recommended holding period, e.g. '3-6 months'.",
     )
+
+    @field_validator("price_target", mode="before")
+    @classmethod
+    def _nullish_float_to_none(cls, v):
+        return _coerce_optional_float(v)
 
 
 def render_pm_decision(decision: PortfolioDecision) -> str:
@@ -288,16 +245,6 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     ]
     if decision.price_target is not None:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
-    if decision.stop_loss is not None:
-        parts.extend(["", f"**Stop Loss**: {decision.stop_loss}"])
-    if decision.trailing_stops:
-        lines = ["", "**Trailing Stops**:"]
-        for ts in decision.trailing_stops:
-            note = f" ({ts.note})" if ts.note else ""
-            lines.append(
-                f"- At {ts.trigger_price} → move stop to {ts.new_stop_price}{note}"
-            )
-        parts.extend(lines)
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
     return "\n".join(parts)
@@ -371,7 +318,9 @@ class SentimentReport(BaseModel):
             "(3) dominant narrative themes; "
             "(4) catalysts and risks surfaced by the data; "
             "(5) a markdown table summarising key sentiment signals, their "
-            "direction, source, and supporting evidence."
+            "direction, source, and supporting evidence. "
+            "Keep it informative and substantive: develop each section thoroughly "
+            "with concrete evidence so every point adds new signal for the trader."
         ),
     )
 

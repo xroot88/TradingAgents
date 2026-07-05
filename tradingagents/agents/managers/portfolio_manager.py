@@ -61,26 +61,6 @@ def create_portfolio_manager(llm):
 
 ---
 
-**Required Output Format** — emit these exact bold section labels, in this order, with one blank line between sections. Do not invent additional headers, emoji, or wrapping markdown.
-
-**Rating**: <Buy | Overweight | Hold | Underweight | Sell>
-
-**Executive Summary**: <2-4 sentences covering the action, entry strategy, position sizing, key risk levels, and time horizon>
-
-**Investment Thesis**: <detailed reasoning anchored in specific evidence from the analysts' debate>
-
-**Price Target**: <optional absolute price in the instrument's quote currency; omit this line if not applicable>
-
-**Stop Loss**: <optional absolute initial stop-loss price in the instrument's quote currency; omit this line if not applicable>
-
-**Trailing Stops**: <optional schedule of conditional stop adjustments; omit the section entirely if not applicable. Each entry on its own line:>
-- At <trigger_price> → move stop to <new_stop_price> (<short note>)
-- At <trigger_price> → move stop to <new_stop_price> (<short note>)
-
-**Time Horizon**: <optional, e.g. "3-6 months"; omit this line if not applicable>
-
-Always provide a concrete **Stop Loss** for actionable ratings (Buy / Overweight / Underweight / Sell); omit it only for a Hold with no open position. Prefer one or two **Trailing Stops** entries when the thesis has a clear path to the price target, ordered from nearest to furthest trigger.
-
 Be decisive and ground every conclusion in specific evidence from the analysts.{get_language_instruction()}"""
 
         final_trade_decision = invoke_structured_or_freetext(

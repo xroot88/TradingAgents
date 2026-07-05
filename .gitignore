@@ -1,5 +1,3 @@
-node_modules/
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -219,6 +217,9 @@ __marimo__/
 
 # Cache
 **/data_cache/
+
+# Frontend
+node_modules/
 
 # Enterprise env file (secrets) and generated run reports
 .env.enterprise
