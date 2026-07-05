@@ -1425,6 +1425,14 @@ def run_analysis(checkpoint: bool = False):
     )
     console.print("\n[bold cyan]Analysis Complete![/bold cyan]\n")
     console.print(f"[dim]{analyst_wall_time_tracker.format_summary()}[/dim]")
+    effort_key = {
+        "openai": "openai_reasoning_effort",
+        "anthropic": "anthropic_effort",
+        "google": "google_thinking_level",
+    }.get(config["llm_provider"])
+    effort = config.get(effort_key) if effort_key else None
+    if effort:
+        console.print(f"[dim]Effort level: {effort}[/dim]")
 
     # Prompt to save report
     save_choice = typer.prompt("Save report?", default="Y").strip().upper()
