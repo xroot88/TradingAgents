@@ -361,7 +361,7 @@ function findRationale(decision, finalVerdict, fields) {
   return kept.join(' ').trim();
 }
 
-function SummaryCard({ ticker, companyName, decision, asOf, lean, rating }) {
+function SummaryCard({ ticker, companyName, decision, asOf, effort, lean, rating }) {
   const fields = parsePmFields(decision);
   const ratingClass = RATING_CLASS[rating] || 'rating-unknown';
   const verdict =
@@ -391,6 +391,12 @@ function SummaryCard({ ticker, companyName, decision, asOf, lean, rating }) {
             <>
               <div className="summary-asof-label">As Of</div>
               <div className="summary-asof-value">{asOf}</div>
+            </>
+          )}
+          {effort && (
+            <>
+              <div className="summary-asof-label summary-effort-label">Effort</div>
+              <div className="summary-asof-value">{effort}</div>
             </>
           )}
         </div>
@@ -657,6 +663,7 @@ function AnalysisResult({ job, result, onReset }) {
           companyName={companyName}
           decision={decision}
           asOf={job.started_at}
+          effort={job.effort}
           lean={lean}
           rating={rating}
         />

@@ -18,6 +18,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
+    "TRADINGAGENTS_MAX_TOKENS":           "max_tokens",
+    "TRADINGAGENTS_LLM_TIMEOUT":          "llm_timeout",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -95,6 +97,13 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # variation on models that honor it; reasoning models largely ignore it
     # and no setting makes LLM output bit-identical across runs (see README).
     "temperature": None,
+    # Guards against runaway generations, forwarded to providers that accept
+    # them. Without an output cap, OpenAI-compatible servers (vLLM, ...)
+    # allow completions up to the model's remaining context window, so a
+    # thinking model stuck in a reasoning loop can occupy the server for
+    # tens of minutes on a single call. None disables either guard.
+    "max_tokens": 8192,      # per-request completion-token cap
+    "llm_timeout": 300,      # per-request HTTP timeout in seconds
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,

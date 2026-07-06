@@ -488,6 +488,9 @@ button:disabled {
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
+.summary-effort-label {
+  margin-top: 8px;
+}
 
 .summary-gauge {
   display: flex;

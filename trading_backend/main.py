@@ -207,7 +207,11 @@ def _run_blocking(job_id: str, ticker: str, effort: str) -> None:
         try:
             from cli.main import save_report_to_disk
             report_dir = ROOT / "reports" / f"{ticker}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            save_report_to_disk(accumulated, ticker, report_dir)
+            save_report_to_disk(accumulated, ticker, report_dir, config)
+            # Persist effort level so past reports can recover it
+            (report_dir / "metadata.json").write_text(
+                json.dumps({"effort": effort}, separators=(",", ":")), encoding="utf-8"
+            )
             job["report_path"] = str(report_dir)
             chart_file = report_dir / "chart.json"
             if chart_file.is_file():
@@ -384,6 +388,14 @@ async def demo(report_name: str):
             chart = None
 
     started_at = parsed["started_at"] if parsed else datetime.utcnow().isoformat() + "Z"
+    # Recover effort from persisted metadata; fall back to "demo" for old reports
+    effort = "demo"
+    meta_file = report_dir / "metadata.json"
+    if meta_file.is_file():
+        try:
+            effort = json.loads(meta_file.read_text(encoding="utf-8")).get("effort", "demo")
+        except Exception:
+            pass
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "status": "completed",
@@ -423,7 +435,7 @@ async def demo(report_name: str):
         },
         "error": None,
         "ticker": ticker,
-        "effort": "demo",
+        "effort": effort,
         "started_at": started_at,
         "cancelled": False,
     }

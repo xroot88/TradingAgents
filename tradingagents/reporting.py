@@ -6,15 +6,37 @@ CLI and ``TradingAgentsGraph.save_reports`` both call this, so a headless / API
 run produces the same on-disk report tree a CLI run does.
 """
 
+import json
 from datetime import datetime
 from pathlib import Path
 
 
-def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
+def _format_config_table(config: dict) -> str:
+    """Format a config dict as a two-column markdown table."""
+    lines = ["| Setting | Value |"]
+    lines.append("|---------|-------|")
+    for key, value in config.items():
+        if value is None:
+            lines.append(f"| {key} | - |")
+        elif isinstance(value, bool):
+            lines.append(f"| {key} | {str(value).lower()} |")
+        elif isinstance(value, (list, dict)):
+            lines.append(f"| {key} | {json.dumps(value)} |")
+        else:
+            lines.append(f"| {key} | {value} |")
+    return "\n".join(lines)
+
+
+def write_report_tree(final_state: dict, ticker: str, save_path, config: dict | None = None) -> Path:
     """Save a completed run's reports to ``save_path``; return the complete-report path."""
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
     sections = []
+
+    # Build header with optional config table
+    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    if config:
+        header += _format_config_table(config) + "\n\n"
 
     # 1. Analysts
     analysts_dir = save_path / "1_analysts"
@@ -96,6 +118,5 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
 
     # Write consolidated report
-    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
     return save_path / "complete_report.md"

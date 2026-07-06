@@ -156,6 +156,17 @@ class TradingAgentsGraph:
         if temperature is not None and temperature != "":
             kwargs["temperature"] = float(temperature)
 
+        # Cross-provider guards against runaway generations: without a cap,
+        # OpenAI-compatible servers allow completions up to the model's
+        # remaining context window. int()/float() for env-string values,
+        # mirroring temperature above.
+        max_tokens = self.config.get("max_tokens")
+        if max_tokens is not None and max_tokens != "":
+            kwargs["max_tokens"] = int(max_tokens)
+        llm_timeout = self.config.get("llm_timeout")
+        if llm_timeout is not None and llm_timeout != "":
+            kwargs["timeout"] = float(llm_timeout)
+
         return kwargs
 
     def _create_tool_nodes(self) -> dict[str, ToolNode]:
@@ -372,7 +383,7 @@ class TradingAgentsGraph:
                 / "reports"
                 / f"{safe_ticker_component(ticker)}_{stamp}"
             )
-        return write_report_tree(final_state, ticker, save_path)
+        return write_report_tree(final_state, ticker, save_path, self.config if self is not None else None)
 
     def _run_graph(self, company_name, trade_date, asset_type: str = "stock"):
         """Execute the graph and write the resulting state to disk and memory log."""
